@@ -60,6 +60,7 @@ vector<Dataset> loadDatasets()
 void printEnvironment(const vector<Dataset>& datasets)
 {
     cout << "Experiment: none_of\n";
+    cout << "Build: Release, optimization " << OPT_LABEL << '\n';
     cout << "Hardware threads H: " << hardwareThreads() << '\n';
     cout << "Sequences:";
     for (const Dataset& d : datasets)

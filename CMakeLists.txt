@@ -18,12 +18,11 @@ add_executable(generate_data
     generate.cpp
     datasets.cpp datasets.h
     sequence_io.cpp sequence_io.h
- "predicates.h" "timing.h" "table.h" "table.cpp" "experiments.h" "experiments.cpp")
+ "predicates.h" "timing.h" "table.h" "table.cpp" "experiments.h" "experiments.cpp" "parallel_none_of.h")
 add_executable(lab2
     main.cpp
     experiments.cpp experiments.h
     datasets.cpp datasets.h
     sequence_io.cpp sequence_io.h
     table.cpp table.h
-    timing.h predicates.h
-)
+    timing.h predicates.h parallel_none_of.h.)

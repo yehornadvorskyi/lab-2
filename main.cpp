@@ -14,5 +14,8 @@ int main()
     runLibraryExperiment(datasets, IsNegative{});
     runLibraryExperiment(datasets, TrigAboveTwo{});
 
+    runOwnExperiment(datasets.back(), IsNegative{});
+    runOwnExperiment(datasets.back(), TrigAboveTwo{});
+
     printCorrectness();
 }

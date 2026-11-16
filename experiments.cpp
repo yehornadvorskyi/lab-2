@@ -1,139 +1,153 @@
 ﻿// дуже багато тєкста буде
 
 #include "experiments.h"
-
-#include "datasets.h"
-#include "parallel_none_of.h"
-#include "predicates.h"
-#include "sequence_io.h"
-#include "table.h"
-#include "timing.h"
+#include "sequences.h"
 
 #include <algorithm>
+#include <chrono>
 #include <execution>
-#include <format>
+#include <iomanip>
 #include <iostream>
-#include <string>
 #include <thread>
 
 using namespace std;
 
-namespace
+// скіки разів запускається кожне вимірюваня
+const int RUNS = 5;
+
+void printInfo(unsigned hardwareThreads)
 {
-    int measurements = 0;
-    int wrongResults = 0;
-
-    // обидва предикати на наших даних завжди хибні, тому вроді none_of має повернути true
-    double checkedMs(const Measurement& m)
-    {
-        ++measurements;
-        if (!m.value)
-            ++wrongResults;
-        return m.ms;
-    }
-
-    unsigned hardwareThreads()
-    {
-        unsigned h = thread::hardware_concurrency();
-        return h == 0 ? 4 : h;  // тут 0 це невідомо
-    }
-
-    vector<size_t> kValues(unsigned h)
-    {
-        vector<size_t> ks;
-        for (size_t k = 1; k <= 2 * h; ++k)
-            ks.push_back(k);
-        for (size_t factor : {4, 8, 16})
-            ks.push_back(factor * h);
-        return ks;
-    }
-}
-
-vector<Dataset> loadDatasets()
-{
-    vector<Dataset> datasets;
-    for (size_t size : kSizes)
-        datasets.push_back({ size, loadSequence(datasetPath(size)) });
-    return datasets;
-}
-
-void printEnvironment(const vector<Dataset>& datasets)
-{
-    cout << "Experiment: none_of\n";
-    cout << "Build: Release, optimization " << OPT_LABEL << '\n';
-    cout << "Hardware threads H: " << hardwareThreads() << '\n';
+    cout << "Experiment: std::none_of\n";
+    cout << "Build: Release, optimization " << OPT_NAME << '\n';
+    cout << "Hardware threads H = " << hardwareThreads << '\n';
     cout << "Sequences:";
-    for (const Dataset& d : datasets)
-        cout << ' ' << d.size;
-    cout << format("\nValues: uniform integers in [{}, {}], seed {}\n", kMinValue, kMaxValue, kSeed);
-    cout << format("Time: median of {} samples, milliseconds per call\n", kRepeats);
-    cout << "Both predicates are never true, so none_of checks every element\n";
+    for (size_t size : SEQUENCE_SIZES)
+        cout << ' ' << size;
+    cout << "\nValues: uniform integers from " << MIN_VALUE << " to " << MAX_VALUE << ", seed " << SEED << '\n';
+    cout << "Time: median of " << RUNS << " runs, milliseconds per call\n";
+    cout << "Both predicates are always false here, so none_of checks every element\n";
 }
 
-template <class Pred>
-void runLibraryExperiment(const vector<Dataset>& datasets, Pred pred)
+double measureMs(const function<bool()>& task)
 {
-    cout << format("\n== 1-2. Library none_of, predicate: {} ==\n", Pred::name);
-    Table table({ "size", "no policy", "seq", "par", "unseq", "par_unseq" });
-    table.printHeader();
-
-    for (const Dataset& d : datasets)
+    // кожен запуск міряю окремо і між запусками є виклик годинника, тому компілятор не можепорахувать none_of один раз на всі повтори (MSVC так робив, коли повтори були в одному циклі)
+    vector<double> times;
+    for (int run = 0; run < RUNS; ++run)
     {
-        auto first = d.values.begin();
-        auto last = d.values.end();
-        auto withPolicy = [&](const auto& policy) {
-            return formatMs(checkedMs(measure([&] { return none_of(policy, first, last, pred); })));
-            };
+        auto start = chrono::steady_clock::now();
+        bool result = task();
+        auto finish = chrono::steady_clock::now();
+        times.push_back(chrono::duration<double, milli>(finish - start).count());
 
-        table.printRow({
-            to_string(d.size),
-            formatMs(checkedMs(measure([&] { return none_of(first, last, pred); }))),
-            withPolicy(execution::seq),
-            withPolicy(execution::par),
-            withPolicy(execution::unseq),
-            withPolicy(execution::par_unseq),
-            });
+        // обидва предикати на наших даних завжди хибні, тому вроді none_of має повернути true
+        if (!result)
+            cout << "ERROR: none_of returned false\n";
+    }
+    sort(times.begin(), times.end());
+    return times[RUNS / 2];   // медіана, тобто те що посередині після сортування
+}
+
+// оця штука друкує число в колонці шириною 12 сиволів, digits це скіки цифр після коми
+void printCell(double value, int digits)
+{
+    cout << setw(12) << fixed << setprecision(digits) << value;
+}
+
+void runLibraryExperiment(const vector<vector<int>>& sequences, Predicate predicate)
+{
+    cout << "\n1-2. Library none_of, predicate: " << predicate.name << '\n';
+    cout << setw(10) << "size" << setw(12) << "no policy" << setw(12) << "seq"
+         << setw(12) << "par" << setw(12) << "unseq" << setw(12) << "par_unseq" << '\n';
+
+    auto check = predicate.check;
+    for (const vector<int>& v : sequences)
+    {
+        cout << setw(10) << v.size();
+        printCell(measureMs([&] { return none_of(v.begin(), v.end(), check); }), 4);
+        printCell(measureMs([&] { return none_of(execution::seq, v.begin(), v.end(), check); }), 4);
+        printCell(measureMs([&] { return none_of(execution::par, v.begin(), v.end(), check); }), 4);
+        printCell(measureMs([&] { return none_of(execution::unseq, v.begin(), v.end(), check); }), 4);
+        printCell(measureMs([&] { return none_of(execution::par_unseq, v.begin(), v.end(), check); }), 4);
+        cout << '\n';
     }
 }
 
-template <class Pred>
-void runOwnExperiment(const Dataset& dataset, Pred pred)
-{
-    const unsigned h = hardwareThreads();
-    cout << format("\n== 3. Own parallel none_of, size {}, predicate: {} ==\n", dataset.size, Pred::name);
-    Table table({ "K", "time, ms", "speedup" });
-    table.printHeader();
+// отут буде власний паралельний none_of:
+// none_of у нас перевіряє чи не задовілняє предикат жоден елемент з вибірки і по умові лаби ділить вибірку на k рівних частин, кожну частину перевіряє звичайним none_of в окремому потоці,
+// результати частин потім тре об'єднати(не забути)
 
-    const vector<size_t> ks = kValues(h);
+bool parallelNoneOf(const vector<int>& values, Predicate predicate, size_t k)
+{
+    const int* data = values.data();
+    size_t n = values.size();
+
+    // тут у мене результат кожної частини, char а не bool бо vector<bool> пакує все в біти і якщо різні потоки пишуть в сусідні елементи то буде некорекнтно
+    vector<char> partResults(k);
+    vector<thread> threads;
+
+    for (size_t i = 0; i < k; ++i)
+    {
+        const int* first = data + n * i / k;
+        const int* last = data + n * (i + 1) / k;
+        threads.emplace_back([&partResults, i, first, last, predicate] {
+            partResults[i] = none_of(first, last, predicate.check);
+        });
+    }
+    // отут чекаємо поки всі потоки закінчать
+    for (thread& t : threads)
+        t.join();
+
+    // у всій вибірці нема потрібного елемента тільки якщо його нема в жодній частині
+    return all_of(partResults.begin(), partResults.end(), [](char r) { return r != 0; });
+}
+
+// шукає K де час найменший і скіки це від кількості потоків процесора (K / H)
+void printBestK(const vector<size_t>& ks, const vector<double>& times, size_t h)
+{
+    size_t best = 0;
+    for (size_t i = 1; i < times.size(); ++i)
+        if (times[i] < times[best])
+            best = i;
+
+    double ratio = static_cast<double>(ks[best]) / static_cast<double>(h);
+    cout << "Best K = " << ks[best] << ", H = " << h << ", K / H = " << setprecision(2) << ratio << '\n';
+}
+
+// на скіки в середньому зростає час з кожним доданим потоком
+void printGrowth(const vector<size_t>& ks, const vector<double>& times, size_t h)
+{
+    size_t from = 2 * h - 1;      
+    size_t to = ks.size() - 1;    
+    double addedThreads = static_cast<double>(ks[to] - ks[from]);
+    double usPerThread = (times[to] - times[from]) / addedThreads * 1000.0;
+    cout << "From K = " << ks[from] << " to K = " << ks[to] << ": "
+         << setprecision(1) << usPerThread << " us per added thread\n";
+}
+
+void runOwnExperiment(const vector<int>& values, Predicate predicate, unsigned hardwareThreads)
+{
+    size_t h = hardwareThreads;
+    cout << "\n3. Own parallel none_of, " << values.size() << " elements, predicate: " << predicate.name << '\n';
+    cout << setw(10) << "K" << setw(12) << "time, ms" << setw(12) << "speedup" << '\n';
+
+    vector<size_t> ks;
+    for (size_t k = 1; k <= 2 * h; ++k)
+        ks.push_back(k);
+    ks.push_back(4 * h);
+    ks.push_back(8 * h);
+    ks.push_back(16 * h);
+
     vector<double> times;
     for (size_t k : ks)
     {
-        times.push_back(checkedMs(measure([&] {
-            return parallelNoneOf(dataset.values.begin(), dataset.values.end(), pred, k);
-            })));
-        table.printRow({ to_string(k), formatMs(times.back()), format("{:.2f}", times.front() / times.back()) });
+        double ms = measureMs([&] { return parallelNoneOf(values, predicate, k); });
+        times.push_back(ms);
+        cout << setw(10) << k;
+        printCell(ms, 4);
+        printCell(times[0] / ms, 2);   // прискорення, у скіки разів швидше ніж з K = 1
+        cout << '\n';
     }
 
-    const size_t best = static_cast<size_t>(min_element(times.begin(), times.end()) - times.begin());
-    cout << format("Best K = {}, H = {}, K / H = {:.2f}\n", ks[best], h, static_cast<double>(ks[best]) / h);
-
-    // на скіки К в середньому зростає час з кожним доданим потоком
-    const size_t from = 2 * h - 1;
-    const size_t to = ks.size() - 1;
-    const double perThreadMs = (times[to] - times[from]) / static_cast<double>(ks[to] - ks[from]);
-    cout << format("From K = {} to K = {}: {:+.1f} us per added thread\n", ks[from], ks[to], perThreadMs * 1000.0);
+    printBestK(ks, times, h);
+    printGrowth(ks, times, h);
 }
-
-void printCorrectness()
-{
-    if (wrongResults == 0)
-        cout << format("\nCheck: all {} measurements returned true\n", measurements);
-    else
-        cout << format("\nCheck FAILED: {} of {} measurements returned false\n", wrongResults, measurements);
-}
-
-// отут шаблони експрментів, дві(вже 4) версії які використовує програма
-template void runLibraryExperiment<IsNegative>(const vector<Dataset>&, IsNegative);
-template void runLibraryExperiment<TrigAboveTwo>(const vector<Dataset>&, TrigAboveTwo);
-template void runOwnExperiment<IsNegative>(const Dataset&, IsNegative);
-template void runOwnExperiment<TrigAboveTwo>(const Dataset&, TrigAboveTwo);

@@ -1,24 +1,21 @@
 ﻿#pragma once
 
-#include <cstddef>
+#include "predicates.h"
+
+#include <functional>
 #include <vector>
 
-// одна згенерована послідовність з файлу
-struct Dataset
-{
-    std::size_t size;
-    std::vector<int> values;
-};
+// загальна інфа
+void printInfo(unsigned hardwareThreads);
 
-std::vector<Dataset> loadDatasets();
+// час одного виклику
+double measureMs(const std::function<bool()>& task);
 
-// налаштування вимірювання
-void printEnvironment(const std::vector<Dataset>& datasets);
+// тут експерименти 1 і 2, звичайний none_of з бібліотеки без політики і з кожною політикою
+void runLibraryExperiment(const std::vector<std::vector<int>>& sequences, Predicate predicate);
 
-template <class Pred>
-void runLibraryExperiment(const std::vector<Dataset>& datasets, Pred pred);
-//отут знизу експєрімєнт буде для мого none_of
-template <class Pred>
-void runOwnExperiment(const Dataset& dataset, Pred pred);
-// тут перевірка скіки вимірювань повернули очікуваний результат
-void printCorrectness();
+// мій паралельний none_of
+bool parallelNoneOf(const std::vector<int>& values, Predicate predicate, std::size_t k);
+
+//отут знизу експєрімєнт буде для мого none_of з різною кількістю потоків K
+void runOwnExperiment(const std::vector<int>& values, Predicate predicate, unsigned hardwareThreads);

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <chrono>
 #include <vector>
+#include <type_traits>
 
 // одне вимірюваня
 struct Measurement
@@ -22,10 +23,14 @@ Measurement measure(F&& f)
     using Clock = std::chrono::steady_clock;
     using Ms = std::chrono::duration<double, std::milli>;
 
+    // отут прийшлось робити виклик через volatile, бо тоді компілятор не знає, що це той самий виклик 
+    // до цього компілятор обчислював іноді його один раз на весь цикл повторів і статиска не така(((
+    std::remove_reference_t<F>* volatile call = &f;
+
     // перший виклик: розігрів і приблизна оцінка часу виклику
 
     auto start = Clock::now();
-    bool value = f();
+    bool value = (*call)();
     double oneCallMs = Ms(Clock::now() - start).count();
     int callsPerSample = oneCallMs >= kMinSampleMs
         ? 1
@@ -37,7 +42,7 @@ Measurement measure(F&& f)
     {
         start = Clock::now();
         for (int c = 0; c < callsPerSample; ++c)
-            value = f() && value;
+            value = (*call)() && value;
         samples.push_back(Ms(Clock::now() - start).count() / callsPerSample);
     }
 

@@ -4,6 +4,7 @@
 #include <chrono>
 #include <vector>
 #include <type_traits>
+#include <atomic>
 
 // одне вимірюваня
 struct Measurement
@@ -42,9 +43,15 @@ Measurement measure(F&& f)
     {
         start = Clock::now();
         for (int c = 0; c < callsPerSample; ++c)
+        {
+            // прийшлось брати допомогу ші щоб додати ще якусь перевірку, бо MSVC і далі рахує однакові виклики один раз
+            // отут компілятор мусить вважати, що дані могли змінитися,тому не може взяти результат попереднього виклику замість нового
+            std::atomic_signal_fence(std::memory_order_seq_cst);
             value = (*call)() && value;
+        }
         samples.push_back(Ms(Clock::now() - start).count() / callsPerSample);
     }
+
 
     std::nth_element(samples.begin(), samples.begin() + kRepeats / 2, samples.end());
     return { samples[kRepeats / 2], value };

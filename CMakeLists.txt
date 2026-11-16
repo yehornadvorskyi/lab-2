@@ -28,9 +28,9 @@ set(LAB_FILES
 # експерименти з макс оптимізацією
 add_executable(lab2_max ${LAB_FILES})
 target_compile_options(lab2_max PRIVATE /O2)
-target_compile_definitions(lab2_max PRIVATE OPT_NAME="maximum (/O2)")
+target_compile_definitions(lab2_max PRIVATE "OPT_NAME=\"maximum (/O2)\"")
 
 # і ті самі без оптимізації
 add_executable(lab2_none ${LAB_FILES})
 target_compile_options(lab2_none PRIVATE /Od)
-target_compile_definitions(lab2_none PRIVATE OPT_NAME="none (/Od)")
+target_compile_definitions(lab2_none PRIVATE "OPT_NAME=\"none (/Od)\"")

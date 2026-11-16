@@ -12,6 +12,13 @@ if (MSVC)
     add_compile_options(/W4 /EHsc)
 endif()
 
+add_compile_definitions(DATA_DIR="${CMAKE_SOURCE_DIR}/data")
+
+add_executable(generate_data
+    generate.cpp
+    datasets.cpp datasets.h
+    sequence_io.cpp sequence_io.h
+)
 add_executable(lab2
     main.cpp
 )
